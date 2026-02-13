@@ -25,8 +25,8 @@ pip install shellhost
 
 1. Clone the repository
 ```
-git clone https://github.com/mbragg-spear/shellhost-personal.git
-cd shellhost-personal
+git clone https://github.com/mbragg-spear/shellhost.git
+cd shellhost
 ```
 
 2. Run the installation
