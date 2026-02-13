@@ -1,35 +1,34 @@
-# pyshell __init__.py
+# shellhost __init__.py
 import platform
 import inspect
-import ctypes
+import shellparser
 import os
 import re
 
 """
 ┌───────────────────────────────────────┐
-│ ## pyshell ##                         │
-│ pyshell aims to provide a simpler     │
+│ ## shellhost ##                       │
+│ shellhost aims to provide a simpler   │
 │ interface to making command line      │
 │ shell-type apps in python.            │
 └───────────────────────────────────────┘
 """
 
-class PyShell:
+class Shell:
   """ Class Object for the actual shell environment.
 
   """
-  def __init__(self, name='pyshell', prompt='pyshell> '):
-    """ Initializes a new PyShell object.
+  def __init__(self, name='shell', prompt='shell> '):
+    """ Initializes a new Shell object.
 
     Args:
-      name: The string name for your shell. Default: pyshell (UNUSED)
-      prompt: The prompt that will be displayed on the command line. Default: 'pyshell> '
+      name: The string name for your shell. Default: shell (UNUSED)
+      prompt: The prompt that will be displayed on the command line. Default: 'shell> '
 
     Returns:
-      A new PyShell object.
+      A new Shell object.
     """
     self.name = name
-    self.interface = Interface(prompt=prompt)
     self.commands = {
         'exit': self._exit,
         'help': self._help,
@@ -37,6 +36,8 @@ class PyShell:
         'echo': self._echo
     }
     self.error_message = None
+    self.name = name
+    self.prompt = prompt
 
     ### Stateful environment tracking
     self.variables = os.environ.copy()
@@ -114,7 +115,7 @@ class PyShell:
     """ Explicitly adds a command to the shell.
 
     Args:
-      command: The PyShell.Command object to add to the shell.
+      command: The Shell.Command object to add to the shell.
 
     Returns:
       None
@@ -138,6 +139,20 @@ class PyShell:
       return self.variables.get(var_name, "") # Return value or empty string
 
     return [re.sub(pattern, replace_match, user_string) for user_string in user_input]
+
+  def expand_subshells(self, user_input):
+    """ Expands subshell operators from the user input.
+
+    Args:
+      user_input: The list of arguments from the user input.
+
+    Returns:
+      An updated list of user_input with subshells expanded.
+    """
+
+    # Pattern: Finds $(*)
+    return user_input
+
 
   def handle_variable_assignment(self, command):
     """ Handles assignment of variables within the shell.
@@ -178,12 +193,19 @@ class PyShell:
     try:
       while True:
         self.error_message = None
-        user_input = self.interface.get_input()
+        user_input = shellparser.get_input(self.prompt) # Get the user input string.
+
+        user_input = shellparser.parse_args(user_input) # Split the input string to individual arguments.
 
         if user_input is None:
           continue # User pressed enter with no input.
 
-        user_input = self.expand_variables(user_input) # Perform variable expansion
+        ### [1]: Expand variables
+        user_input = self.expand_variables(user_input)
+
+
+        ### [2]: Expand subshells
+        user_input = self.expand_subshells(user_input)
 
         if self.handle_variable_assignment(user_input[0]): # Returns True if successful
           continue # User assigned a variable, no execution needed.
@@ -199,7 +221,7 @@ class PyShell:
           else:
             self.variables['?'] = user_command(user_input[1:])
 
-          self.interface.add_history(' '.join(user_input))
+          shellparser.add_history(' '.join(user_input))
 
         except (Command.ParsingError, Command.ArgumentError) as e:
           print(e)
@@ -214,135 +236,9 @@ class PyShell:
         print(f"Error: {self.error_message}")
 
 
-class Interface:
-  def __init__(self, prompt='shell> '):
-    """ Initializes an Interface object for the C library I/O handling.
-
-    Args:
-      self: The Interface object.
-
-    Returns:
-      A new Interface object.
-    """
-    ### Get directory where our __init__ file lives
-    package_dir = os.path.dirname(os.path.abspath(__file__))
-    if platform.system() == "Windows":
-      lib_name = "libshellparser.dll"
-    else:
-      lib_name = "libshellparser.so"
-
-
-    lib_path = os.path.join(package_dir, lib_name)
-
-
-    ### ctypes setup for libshellparser.so
-    self.shell_lib = ctypes.CDLL(lib_path)  # Import the C library for parsing shell commands.
-
-    self.RowType = ctypes.c_char * 256  # ┬ Define arrays for ctypes.
-    self.MatrixType = self.RowType * 32 # ┘
-    self.shell_lib.parse_args.argtypes = [ctypes.c_char_p, self.MatrixType] # Define input types for argument parser.
-    self.shell_lib.parse_args.restype = ctypes.c_int # Define return type for argument parser.
-
-
-    self.shell_lib.get_input.restype = ctypes.c_void_p # Define return types.
-    self.shell_lib.get_input.argtypes = [ctypes.c_char_p] # Define input types.
-
-    # Setup the free function arg types
-    self.shell_lib.free_mem.argtypes = [ctypes.c_void_p]
-    self.shell_lib.free_mem.restype = None
-
-
-    self.shell_lib.add_history.argtypes = [ctypes.c_char_p]
-    self.shell_lib.add_history.restype = None
-
-
-    self.prompt = prompt
-
-  def get_args(self, input_str: str) -> list:
-    """ Parses a given string using the C shell parser library.
-
-    Args:
-      self: The PyShell object
-      input_str: A single shell command string to be split.
-
-    Returns:
-      The input string split into individual shell style arguments.
-
-    Raises:
-      TypeError: If input_str is not a string.
-    """
-
-    if type(input_str) != str:
-      raise TypeError(f"Expected type str for input_str, got {type(input_str)}.")
-
-    input_str = input_str.encode('utf-8') # Encode input string into UTF-8.
-
-    output_buffer = self.MatrixType()     # Create the output buffer using ctypes.
-
-    nargs = self.shell_lib.parse_args(input_str, output_buffer) # ┬ Call C function, get nargs.
-                                                                # ├ nargs is the number of arguments located.
-                                                                # └ output_buffer is populated with located arguments during this.
-
-
-    if nargs < 0: # The C library returned an error
-      raise ValueError("Argument exceeds max length of 255 characters.")
-
-    return [row.value.decode('utf-8') for row in output_buffer[:nargs]]
-
-  def add_history(self, user_command_string) -> None:
-    """ Uses the C library to append a line to the shell's history.
-    Args:
-      self: The C interface object.
-
-    Returns:
-      None
-    """
-
-    self.shell_lib.add_history(user_command_string.encode('utf-8'))
-
-
-  def get_input(self) -> list:
-    """ Uses the C library to read user input until they press Enter.
-
-    Args:
-      self: The C interface object.
-
-    Returns:
-      The most recent command line input from the user, split into a list of individual parts.
-    """
-    user_input = []
-
-
-    # 1. ALLOCATE: Get the raw address (integer)
-    ptr_address = self.shell_lib.get_input(self.prompt.encode('utf-8'))
-
-    if not ptr_address:
-        return None
-
-    try:
-        # 2. CAST: Create a view of that memory as a string to read it
-        # We cast the void pointer to a char pointer to read the data
-        c_string = ctypes.cast(ptr_address, ctypes.c_char_p)
-
-        # Convert C string to Python string (decode bytes to str)
-        python_string = c_string.value.decode('utf-8')
-
-        if len(python_string) > 0:
-          user_input = self.get_args(python_string)
-        else:
-          user_input = None
-
-        return user_input
-
-    finally:
-        # 3. FREE: Pass the ORIGINAL address back to C
-        # We use 'finally' to ensure memory is freed even if parsing fails
-        self.shell_lib.free_mem(ptr_address)
-
-
 class Command:
   def __init__(self, name, func):
-    """ Initializes a pyshell Command object.
+    """ Initializes a Shell Command object.
 
     Args:
       self: The Command object.
@@ -400,14 +296,14 @@ class Command:
 
   @classmethod
   def decorator(self, func):
-    """ Function decorator for creating a pyshell command from a python function.
+    """ Function decorator for creating a Shell command from a python function.
 
     Args:
       self: The Command class definition.
       func: The function to be decorated.
 
     Returns:
-      A pyshell Command object.
+      A Shell Command object.
     """
 
     this_command = self(func.__name__, func) # Create new Command object.
@@ -579,7 +475,7 @@ class Command:
 ### Mainguard to open a basic shell if called directly.
 if __name__ == "__main__":
 
-  myshell = PyShell()
+  myshell = Shell()
   myshell.open()
 
 

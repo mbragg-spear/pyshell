@@ -1,0 +1,15 @@
+class Shellhost < Formula
+  desc "My Custom Python + C Library"
+  homepage "https://github.com/Jepebu/pyshell-personal"
+  # We will dynamically replace CURRENT_DIR with the real path in the Makefile
+  url "file://CURRENT_DIR/shellhost.tar.gz"
+  version "1.0"
+
+  depends_on "python" 
+
+  def install
+    python3 = "python3"
+    # This installs the library into the Homebrew cellar
+    system "python3", "-m", "pip", "install", *std_pip_args, "--no-build-isolation", "."
+  end
+end
