@@ -576,15 +576,10 @@ class Command:
     return positional_args, optional_args
 
 
-### Mainguard for quick testing
+### Mainguard to open a basic shell if called directly.
 if __name__ == "__main__":
-  @Command.decorator
-  def cool_function(arg1, arg2):
-    print(f"arg1: {arg1}")
-    print(f"arg2: {arg2}")
 
   myshell = PyShell()
-  myshell.add_command(cool_function)
   myshell.open()
 
 

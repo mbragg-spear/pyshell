@@ -45,7 +45,7 @@ clean:
 
 install: $(TARGET_LIB)
 	@echo [2/2] Installing python package...
-	pip install .
+	python3 -m pip install . --break-system-packages
 	@echo Cleaning up...
 	$(RM) build pyshell.egg-info
 

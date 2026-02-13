@@ -9,9 +9,6 @@ setup(
     name="pyshell",
     version="1.0",
     packages=find_packages(),
-    # CRITICAL CHANGE:
-    # 1. We removed 'ext_modules=[...]' so pip doesn't try to compile.
-    # 2. We added 'package_data' so pip looks for the existing .dll/.so files.
     package_data={
         'pyshell': ['*.dll', '*.so', '*.dylib']
     },
