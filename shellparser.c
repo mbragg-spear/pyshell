@@ -22,6 +22,14 @@ static int history_view_idx = 0; // Where the user is currently looking
 
 // Python calls this to save a command
 void add_history(const char* cmd) {
+  /* Helper function that adds a line of text to the shell command history.
+
+  Args:
+    cmd: the command string to append to the history
+
+  Returns:
+    None
+  */
   if (strlen(cmd) == 0) return;
 
   // Shift everything down if full (Simple implementation)
@@ -43,6 +51,18 @@ void add_history(const char* cmd) {
 
 
 void replace_line(char* buffer, size_t* length, size_t* cursor_idx, const char* new_text, const char* term_prompt) {
+  /* Helper function that replaces the current line of text with a different one.
+
+  Args:
+    buffer: the current text buffer
+    length: the size of the current buffer
+    cursor_idx: the position of the cursor within the text
+    new_text: the text to replace the current line with
+    term_prompt: the terminal prompt to print before replacing the line
+
+  Returns:
+    None
+  */
   // 1. Fix visuals
   printf("\r");         // Move to line start
   printf("\x1b[K");     // Print ANSI code to clear the line
@@ -56,6 +76,12 @@ void replace_line(char* buffer, size_t* length, size_t* cursor_idx, const char* 
 
   fflush(stdout);
 }
+
+/*
+Handle the setup for how we can
+enable/disable raw input mode
+across platforms.
+*/
 
 // WINDOWS IMPLEMENTATION
 #ifdef _WIN32
@@ -107,6 +133,15 @@ void replace_line(char* buffer, size_t* length, size_t* cursor_idx, const char* 
 
 // Exported function callable from Python
 char* get_input(const char* prompt) {
+  /* Handles keyboard input and special keys.
+
+  Args:
+    prompt: character array for the shell prompt.
+
+
+  Returns:
+    The character array buffer of user input.
+  */
   printf("%s", prompt);
   fflush(stdout);
 
@@ -167,16 +202,14 @@ char* get_input(const char* prompt) {
           case 77: // RIGHT ARROW (M)
             if (cursor_idx < length) {
               cursor_idx++;
-              // To visually move right without overwriting, we usually just re-print the char
-              // But in raw console, we can use ANSI or just re-print:
               printf("%c", buffer[cursor_idx-1]);
               fflush(stdout);
               // Note: Windows console might need specific API calls for non-destructive move,
-              // but printing the existing char is the cheap hack that works.
+              // but printing the existing char is a cheap hack that works.
             }
             break;
           }
-          // CRITICAL: Skip the rest of the loop!
+          // Skip the rest of the loop!
           // Do not let 'c' (0xE0) or 'special' (75) get added to buffer.
           continue;
       }
@@ -228,7 +261,7 @@ char* get_input(const char* prompt) {
         // 3. Print New Char
         printf("%c", c);
 
-        // 4. Print the shifted tail (Now safe because it ends with \0)
+        // 4. Print the shifted tail
         printf("%s", &buffer[cursor_idx + 1]);
 
         // 5. Move Cursor Back
@@ -351,8 +384,6 @@ char* get_input(const char* prompt) {
     */
     else if (cursor_idx < length) {
       // [#1] Shift the memory.
-      // Move everything from current position to the end ONE step to the right
-      // We move (length - cursor_idx) bytes
       memmove(&buffer[cursor_idx + 1], &buffer[cursor_idx], length - cursor_idx);
 
       // Insert the new char
@@ -361,19 +392,11 @@ char* get_input(const char* prompt) {
 
 
       // [#2] Redraw the visuals.
-      // [2A] Print the new character
       printf("%c", c);
-
-      // [2B]. Print everything that follows it (the "tail")
-      // This overwrites the old characters on screen with the shifted ones
       printf("%s", &buffer[cursor_idx + 1]);
 
 
       // [#3] Fix the cursor position.
-      // We just printed the whole tail, so the cursor is now at the very end of the line.
-      // We need to move it BACK to just after the character we inserted.
-      // Distance to move back = (new length) - (current cursor position + 1)
-
       size_t steps_back = length - (cursor_idx + 1);
       for (size_t i = 0; i < steps_back; i++) {
           printf("\033[D");
@@ -410,8 +433,14 @@ void free_line(char* line) {
 
 // 2. The Liberator
 void free_mem(void* ptr) {
-    // Wrapper around standard free()
-    // Doing this explicitly is safer than calling libc.free directly from Python
+    /* Wrapper around the standard free() call. Using this is safer than calling libc.free from Python.
+
+    Args:
+      ptr: the pointer to what we're freeing.
+
+    Returns:
+      None
+    */
     if (ptr) free(ptr);
 }
 

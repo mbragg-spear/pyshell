@@ -14,17 +14,20 @@ import re
 └───────────────────────────────────────┘
 """
 
-class _ascii:
-  """
-  Simple wrapper class for storing frequently used ASCII escape codes.
-  """
-
-  alt_screen = "\033[?1049h"
-  orig_screen = "\033[?1049l"
-  top_left = "\033[H"
-
 class PyShell:
+  """ Class Object for the actual shell environment.
+
+  """
   def __init__(self, name='pyshell', prompt='pyshell> '):
+    """ Initializes a new PyShell object.
+
+    Args:
+      name: The string name for your shell. Default: pyshell (UNUSED)
+      prompt: The prompt that will be displayed on the command line. Default: 'pyshell> '
+
+    Returns:
+      A new PyShell object.
+    """
     self.name = name
     self.interface = Interface(prompt=prompt)
     self.commands = {
@@ -37,11 +40,19 @@ class PyShell:
 
     ### Stateful environment tracking
     self.variables = os.environ.copy()
-    self.variables['?'] = '0'
-    self.variables['!'] = str(os.getpid())
+    self.variables['?'] = '0'                # Return values from commands
+    self.variables['!'] = str(os.getpid())   # Current PID
 
 
   def _exit(self, *user_input):
+    """ Safely calls the python exit() function from within the shell.
+
+    Args:
+      None
+
+    Returns:
+      None
+    """
     exit()
 
   def _echo(self, user_input):
@@ -60,10 +71,15 @@ class PyShell:
   def _env(self, *args):
     """ Prints all currently stored environment variables.
 
+    Args:
+      None (*args is in the signature to handle empty argument lists).
 
+    Returns:
+      None
     """
     for K,V in self.variables.items():
       print(f"{K} = {V}")
+
 
   def _help(self, user_input=None, *args):
     """ Prints help messages for commands.
@@ -72,7 +88,8 @@ class PyShell:
       user_input: The name of the command specifically to view a help message for.
 
     Returns:
-      None
+      "Command not found.": If the user requested a specific command that could not be located.
+      None: Otherwise
     """
 
 
@@ -80,7 +97,7 @@ class PyShell:
       user_func = self.commands.get(user_input[0])
       if user_func is None:
         print(f"Error - help: Command {user_input[0]} not found.")
-        return
+        return 'Command not found.'
 
       if type(user_func) == Command:
         help(user_func.func)
@@ -94,10 +111,26 @@ class PyShell:
     print("\n")
 
   def add_command(self, command):
+    """ Explicitly adds a command to the shell.
+
+    Args:
+      command: The PyShell.Command object to add to the shell.
+
+    Returns:
+      None
+    """
     self.commands[command.name] = command
 
   def expand_variables(self, user_input):
-    # Pattern: Finds $VAR_NAME
+    """ Expands variables from user input.
+
+    Args:
+      user_input: The list of arguments from the user input.
+
+    Returns:
+      An updated list of user_input with variables expanded.
+    """
+    # Pattern: Finds $VAR_NAME or $?, $!, $$
     pattern = r"\$([a-zA-Z_][a-zA-Z0-9_]*|[?!$])"
 
     def replace_match(match):
@@ -107,6 +140,15 @@ class PyShell:
     return [re.sub(pattern, replace_match, user_string) for user_string in user_input]
 
   def handle_variable_assignment(self, command):
+    """ Handles assignment of variables within the shell.
+
+    Args:
+      command: The input command from the user.
+
+    Returns:
+      True: If command was a valid variable assignment.
+      False: If command wasn't a valid variable assignment.
+    """
     # Check for syntax: VAR=value
     if "=" in command:
       parts = command.split("=", 1)
@@ -118,10 +160,21 @@ class PyShell:
     return False
 
 
-  def __call__(self):
+  def __call__(self): # Just a wrapper for calling shell.open() by calling shell()
+    """ Same as shell.open()
+    """
     self.open()
 
   def open(self):
+    """ Enters the interactive shell session with the currently configured command setup.
+
+    Args:
+      None
+
+    Returns:
+      None
+    """
+
     try:
       while True:
         self.error_message = None
@@ -243,7 +296,6 @@ class Interface:
 
     Returns:
       None
-
     """
 
     self.shell_lib.add_history(user_command_string.encode('utf-8'))
@@ -257,7 +309,6 @@ class Interface:
 
     Returns:
       The most recent command line input from the user, split into a list of individual parts.
-
     """
     user_input = []
 
@@ -340,7 +391,6 @@ class Command:
 
     Returns:
       Whatever the function for this Command returns.
-
     """
     p_args, o_args = self.parse(arg_list)
     try:
