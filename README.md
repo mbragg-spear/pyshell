@@ -90,12 +90,13 @@ This code snippet utilizes the same `add_five` function defined in Example 1.
 
 ```
 pyshell> MY_VAR=15
-pyshell> echo $MY\_VAR
+pyshell> echo $MY_VAR
 15
 pyshell> add_five $MY_VAR
 20
 pyshell> echo $?
 20
 ```
+
 
 
