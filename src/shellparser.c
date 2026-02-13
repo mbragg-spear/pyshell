@@ -11,9 +11,134 @@
 #include <string.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <Python.h>
 
 #define MAX_HISTORY 50
 #define MAX_CMD_LEN 256
+#define PY_SSIZE_T_CLEAN
+
+
+
+/* ==========================================
+ * 1. EXTERNAL C FUNCTION DECLARATIONS
+ * ========================================== */
+extern int parse_args(const char* input_str, char args[32][256]);
+extern void free_mem(void* ptr);
+extern char* get_input(const char* prompt);
+extern void add_history(const char* cmd);
+
+
+/* ==========================================
+ * 2. PYTHON WRAPPERS
+ * ========================================== */
+
+// Wrapper for: int parse_args(...)
+// Python usage: result_list = parse_args("cmd arg1 arg2")
+static PyObject* shellparser_parse_args(PyObject *self, PyObject *args) {
+  const char *input_str;
+  char parsed_args[32][256];  // Allocate buffer on stack for C function
+  int count;
+
+  // 1. Parse Python String -> C String
+  if (!PyArg_ParseTuple(args, "s", &input_str)) {
+    return NULL;
+  }
+
+  // 2. Call the actual C function
+  count = parse_args(input_str, parsed_args);
+
+  // 3. Convert C Array -> Python List
+  PyObject* py_list = PyList_New(count);
+  for (int i = 0; i < count; i++) {
+    PyObject* py_str = PyUnicode_FromString(parsed_args[i]);
+    PyList_SetItem(py_list, i, py_str); // Steals reference to py_str
+  }
+
+  return py_list;
+}
+
+
+
+// Wrapper for: char* get_input(...)
+// Python usage: user_input = get_input("Enter command: ")
+static PyObject* shellparser_get_input(PyObject *self, PyObject *args) {
+  const char *prompt;
+  char *result;
+
+  if (!PyArg_ParseTuple(args, "s", &prompt)) {
+    return NULL;
+  }
+
+  // Call C function
+  result = get_input(prompt);
+
+  // Convert C String -> Python String
+  PyObject* py_result = PyUnicode_FromString(result);
+
+  // Python now has its own copy, so its safe to free() from here.
+  free_mem(result);
+
+  return py_result;
+}
+
+
+// Wrapper for: void add_history(...)
+// Python usage: add_history("ls -la")
+static PyObject* shellparser_add_history(PyObject *self, PyObject *args) {
+  const char *cmd;
+
+  if (!PyArg_ParseTuple(args, "s", &cmd)) {
+    return NULL;
+  }
+
+  add_history(cmd);
+
+  // Return None (void functions must return Py_None in Python C API)
+  Py_RETURN_NONE;
+}
+
+// Wrapper for: void free_mem(...)
+// Python usage: free_mem(123456)  <-- Takes an integer address
+// Likely not needed anymore, but I'm not gonna trash it just yet.
+static PyObject* shellparser_free_mem(PyObject *self, PyObject *args) {
+  unsigned long long ptr_addr;
+
+  if (!PyArg_ParseTuple(args, "K", &ptr_addr)) { // K = unsigned long long
+    return NULL;
+  }
+
+  free_mem((void*)ptr_addr);
+
+  Py_RETURN_NONE;
+}
+
+/* ==========================================
+ * 3. THE METHOD TABLE
+ * ========================================== */
+static PyMethodDef ShellParserMethods[] = {
+  {"parse_args",  shellparser_parse_args,  METH_VARARGS, "Parse a command string into a list of arguments."},
+  {"get_input",   shellparser_get_input,   METH_VARARGS, "Get input from user with a prompt."},
+  {"add_history", shellparser_add_history, METH_VARARGS, "Add a command to history."},
+  {"free_mem",    shellparser_free_mem,    METH_VARARGS, "Free a C pointer (Pass address as int)."},
+  {NULL, NULL, 0, NULL}  /* Sentinel */
+};
+
+
+/* ==========================================
+ * 4. MODULE INITIALIZATION
+ * ========================================== */
+static struct PyModuleDef shellparser_module = {
+  PyModuleDef_HEAD_INIT,
+  "shellparser",   /* name of module */
+  NULL,            /* module documentation */
+  -1,              /* size of per-interpreter state */
+  ShellParserMethods
+};
+
+PyMODINIT_FUNC
+PyInit_shellparser(void) {
+  return PyModule_Create(&shellparser_module);
+}
 
 // Global History Storage
 static char history[MAX_HISTORY][MAX_CMD_LEN];
@@ -66,7 +191,7 @@ void replace_line(char* buffer, size_t* length, size_t* cursor_idx, const char* 
   // 1. Fix visuals
   printf("\r");         // Move to line start
   printf("\x1b[K");     // Print ANSI code to clear the line
-  printf(term_prompt);  // Print prompt
+  printf("%s", term_prompt);  // Print prompt
   printf("%s", new_text); // Print buffer content
 
   // 2. Update Buffer Memory

@@ -1,6 +1,6 @@
-# pyshell
+# shellhost
 
-PyShell is a small C + Python library that simplifies the creation of shell style apps within Python by allowing function definitions to be initialized directly as shell commands.
+Shellhost is a small C + Python library that simplifies the creation of shell style apps within Python by allowing function definitions to be initialized directly as shell commands.
  
 This library is compatible with Windows, Linux, and MacOS systems. 
 
@@ -19,8 +19,8 @@ This section will cover how to get this library installed on your system.
 ### Installation
 1. Clone the repository
 ```
-git clone https://github.com/mbragg-spear/pyshell.git
-cd pyshell
+git clone https://github.com/mbragg-spear/shellhost-personal.git
+cd shellhost-personal
 ```
 
 2. Run the installation
@@ -30,21 +30,21 @@ make install
 ``` 
 
 ### Usage
-In any Python application where you'd want to make an interactive shell, simply `import pyshell` to get started. 
+In any Python application where you'd want to make an interactive shell, simply `import shellhost` to get started. 
 
-PyShell supports basic variable assignment/expansion with `sh` like syntax, as well as an accessible command history with up and down arrow keys. 
+Shellhost supports basic variable assignment/expansion with `sh` like syntax, as well as an accessible command history with up and down arrow keys. 
 
 You can see some examples of this in the [examples](#Examples) section. 
 
 ### Examples
 
-#### Example 1: Creating a PyShell Command with a function declaration.
-The following code snippet creates a function `add_five` which is initialized as a PyShell Command.
+#### Example 1: Creating a Shellhost Command with a function declaration.
+The following code snippet creates a function `add_five` which is initialized as a Shellhost Command.
 
 ```
 #!/usr/bin/env python3
-import pyshell 
-@pyshell.Command.decorator
+import shellhost 
+@shellhost.Command.decorator
 def add_five(x: int) -> int: # The decorator takes care of the configuration.
   """ Adds five to the input number. 
   Args:
@@ -61,7 +61,7 @@ def add_five(x: int) -> int: # The decorator takes care of the configuration.
   return answer
 
 
-my_shell = pyshell.PyShell() 
+my_shell = shell.Shell() 
 my_shell.add_command(add_five)
 my_shell.open() # or just my_shell()
 ```
@@ -69,19 +69,19 @@ my_shell.open() # or just my_shell()
 After running this, the interactive interface will open with a handful of builtin commands, as well as the `add_five` command.
  
 ```
-pyshell> help
+shell> help
 Command: help
 Command: exit
 Command: env
 Command: echo
 Command: add_five
 
-pyshell> help add_five
+shell> help add_five
 *** docstring for add_five gets printed here ***
 
-pyshell> add_five 10
+shell> add_five 10
 15
-pyshell> echo $?
+shell> echo $?
 15
 ```
 
@@ -89,12 +89,12 @@ pyshell> echo $?
 This code snippet utilizes the same `add_five` function defined in Example 1.
 
 ```
-pyshell> MY_VAR=15
-pyshell> echo $MY_VAR
+shell> MY_VAR=15
+shell> echo $MY_VAR
 15
-pyshell> add_five $MY_VAR
+shell> add_five $MY_VAR
 20
-pyshell> echo $?
+shell> echo $?
 20
 ```
 
