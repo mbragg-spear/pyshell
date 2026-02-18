@@ -3,31 +3,40 @@
 Shellhost is a small C + Python library that simplifies the creation of shell style apps within Python by allowing function definitions to be initialized directly as shell commands.
  
 This library is compatible with Windows, Linux, and MacOS systems. 
-
-## Full README coming soon!
-The full README is still a work in progress, as is this library. More documentation to come!
  
 ## Getting Started
 This section will cover how to get this library installed on your system.
 
-### Requirements
-- python3
-- pip
-- gcc
-- make
 
-### Installation
+### pip
+To install this in pip-managed systems, you can just `pip install shellhost`.
+
+#### Known Issues
+* `externally-managed-environment`
+  If you attempt to use pip for this installation on a system that uses an external package manager for  
+  Python libraries (`apt`, `yum`, `dnf`, `homebrew`) you will encounter an `externally-managed-environment` error.  
+  If you see this error, proceed to the [Non-pip Installation](#non-pip-installation) section.
+
+### Non-pip Installation
+If you are on a system with externally managed packages, then follow the instructions below.
+
+#### Requirements
+* Your system's package manager (`apt`, `dnf`, `homebrew`).
+* `git`
+
 1. Clone the repository
 ```
-git clone https://github.com/mbragg-spear/shellhost-personal.git
-cd shellhost-personal
+git clone https://github.com/mbragg-spear/shellhost.git
+cd shellhost
 ```
 
 2. Run the installation
 ```
 make
 make install
-``` 
+```
+
+During the `make install` several dependencies will be installed from your package manager.
 
 ### Usage
 In any Python application where you'd want to make an interactive shell, simply `import shellhost` to get started. 

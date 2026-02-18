@@ -1,14 +1,15 @@
-class MyLibrary < Formula
-  desc "My Custom Python + C Library"
-  homepage "https://github.com/yourname/repo"
+class Shellhost < Formula
+  desc "Custom C + Python interactive shell library"
+  homepage "https://github.com/mtbragg-spear/shellhost"
   # We will dynamically replace CURRENT_DIR with the real path in the Makefile
-  url "file://CURRENT_DIR"
-  version "1.0"
+  url "file://CURRENT_DIR/shellhost.tar.gz"
+  version "2.0.0"
 
-  depends_on "python@3.12" 
+  depends_on "python3" 
 
   def install
+    python3 = "python3"
     # This installs the library into the Homebrew cellar
-    system "python3", "-m", "pip", "install", *std_pip_args, "."
+    system "python3", "-m", "pip", "install", *std_pip_args, "--no-build-isolation", "."
   end
 end

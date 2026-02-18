@@ -1,11 +1,16 @@
 # MASTER MAKEFILE for Cross-Platform Distribution
 
+ifeq ($(OS),Windows_NT)
+        @echo '[ERROR] Use "pip install shellhost" to install on Windows systems.'
+        exit 1
+endif
+
 # --- OS DETECTION ---
 OS := $(shell uname -s)
 ifeq ($(OS),Linux)
-    # Check if Debian-based (uses apt) or RHEL-based (uses dnf/yum)
-    IS_DEBIAN := $(shell if [ -f /etc/debian_version ]; then echo yes; else echo no; fi)
-    IS_RHEL := $(shell if [ -f /etc/redhat-release ]; then echo yes; else echo no; fi)
+        # Check if Debian-based (uses apt) or RHEL-based (uses dnf/yum)
+        IS_DEBIAN := $(shell if [ -f /etc/debian_version ]; then echo yes; else echo no; fi)
+        IS_RHEL := $(shell if [ -f /etc/redhat-release ]; then echo yes; else echo no; fi)
 endif
 
 # --- DEFAULT TARGET ---
@@ -14,58 +19,74 @@ all: install
 # --- DEBIAN / UBUNTU (apt + .deb) ---
 ifeq ($(IS_DEBIAN),yes)
 deps:
-	sudo apt-get update
-	sudo apt-get install -y python3-stdeb debhelper python3-all python3-dev build-essential
+	@echo "[1/3] Installing dependencies..."
+	sudo apt-get install -y gcc python3-stdeb debhelper python3-all python3-dev python3-pip build-essential
 
 build:
+	@echo "[2/3] Building library..."
 	rm -rf deb_dist dist build
 	python3 setup.py --command-packages=stdeb.command bdist_deb
 
 install: deps build
+	@echo "[3/3] Installing library with apt..."
 	sudo dpkg -i deb_dist/*.deb || sudo apt-get install -f -y
+	@echo "[DONE] Installation succeeded!"
 
-reinstall: clean deps build
+uninstall:
+	@echo "Uninstalling..."
 	-sudo apt remove python3-shellhost -y
-	sudo dpkg -i deb_dist/*.deb || sudo apt-get install -f -y
-
-
 endif
 
 # --- FEDORA / RHEL / CENTOS (dnf + .rpm) ---
 ifeq ($(IS_RHEL),yes)
 deps:
-	sudo dnf install -y rpm-build python3-devel gcc redhat-rpm-config
+	@echo "[1/3] Installing dependencies..."
+	sudo dnf install -y rpm-build python3-devel python3-pip gcc redhat-rpm-config
 
 build:
+	@echo "[2/3] Building library..."
 	rm -rf dist build
 	# bdist_rpm creates the spec file and the rpm automatically
 	python3 setup.py bdist_rpm
 
 install: deps build
+	@echo "[3/3] Installing library with dnf..."
 	# Find the generated RPM (usually in dist/) and install it
 	sudo dnf install -y dist/*.noarch.rpm dist/*.x86_64.rpm
+	@echo "[DONE] Installation succeeded!"
+uninstall:
+	@echo "Uninstalling..."
+	-sudo dnf erase python3-shellhost -y
 endif
 
 # --- MACOS (Homebrew) ---
 ifeq ($(OS),Darwin)
 deps:
 	# Check if brew is installed
+	@echo "[1/3] Checking for homebrew..."
 	@which brew > /dev/null || (echo "Homebrew required. Visit brew.sh"; exit 1)
 
 build:
+	@echo "[2/3] Creating homebrew formula..."
 	# 1. Get absolute path of current directory
 	$(eval CUR_DIR := $(shell pwd))
 	# 2. Create a temporary Formula file pointing to this directory
 	sed 's|CURRENT_DIR|$(CUR_DIR)|g' Formula.rb.in > local_formula.rb
 
 install: build
+	@echo "[3/3] Installing with homebrew..."
 	# Install using the local formula in verbose mode to show compilation
 	brew install --build-from-source ./local_formula.rb
 	# Clean up
 	rm local_formula.rb
+	@echo "[DONE] Installation succeeded!"
+uninstall:
+	@echo "Uninstalling..."
+	-sudo brew uninstall python3-shellhost -y
 endif
 
 # --- CLEANUP ---
 clean:
-	rm -rf deb_dist dist build *.egg-info shellhost*.rb
-	rm -rf *.tar.gz *.rpm
+	rm -rf deb_dist dist build shellhost*.rb *.tar.gz *.rpm
+	rm -rf src/shellhost.egg-info
+	rm -rf src/shellhost/__pycache__
