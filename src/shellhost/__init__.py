@@ -1,9 +1,8 @@
 # shellhost __init__.py
 
-from .shellhost_shell import Shell
-from .shellhost_io import IOManager
 from .shellhost_command import Command
+from .shellhost import *
 
-__version__ = '1.1.1'
+__version__ = '2.0.0'
 __author__ = 'M. Bragg'
 

@@ -1,8 +1,10 @@
 # shellhost __init__.py
 import inspect
+import shell_core
+import sys
 
 class Command:
-  def __init__(self, name, func):
+  def __init__(self, name, func, register=True):
     """ Initializes a Shell Command object.
 
     Args:
@@ -15,10 +17,12 @@ class Command:
     """
 
     self.name = name
-    self.__name__ = name
+    self.__name__ = self.name
     self.func = func
     self.positional_arguments = {}
     self.optional_arguments = {}
+
+    if register: shell_core.register(self.name, self)
 
   class ParsingError(Exception):
     def __init__(self, message=''):
@@ -29,6 +33,10 @@ class Command:
     def __init__(self, message=''):
       final_message = "Error while executing command: " + message if len(message) > 0 else "Error while executing command."
       super().__init__(final_message)
+
+  def set_name(self, new_name: str) -> None:
+    self.name = new_name
+    self.__name__ = new_name
 
 
   def get_args(self) -> dict:
@@ -54,7 +62,23 @@ class Command:
     Returns:
       Whatever the function for this Command returns.
     """
-    p_args, o_args = self.parse(args)
+    this_command = args[0]
+    cli_args = list(args[1:])
+    if not cli_args and not sys.stdin.isatty():
+      try:
+        # Read from the C-pipe, strip newline
+        # Example: "5\n" -> "5"
+        stdin_data = sys.stdin.read().strip()
+
+        if stdin_data:
+          # Split by whitespace to handle multiple args if needed
+          # Example: "1 2" -> ["1", "2"]
+          cli_args.extend(stdin_data.split())
+      except Exception:
+        # If reading fails, just proceed with empty args and let parse() handle the error
+        pass
+
+    p_args, o_args = self.parse(cli_args)
     try:
       if p_args is not None and o_args is not None: return self.func(*p_args, **o_args)
       elif p_args is not None: return self.func(*p_args)
@@ -65,8 +89,27 @@ class Command:
       raise Command.ArgumentError(str(e))
 
   @classmethod
-  def decorator(self, func):
-    """ Function decorator for creating a Shell command from a python function.
+  def command(self, func):
+    """
+    Function decorator for creating a Shell command from a python function,
+    without setting any values for it or registering it.
+
+    Args:
+      self: The Command class definition.
+      func: The function to be decorated.
+
+    Returns:
+      A Shell Command object.
+    """
+    this_command = self(func.__name__, func, register=False)
+    return this_command
+
+
+  @classmethod
+  def auto_command(self, func):
+    """
+    Function decorator for creating a Shell command from a python function,
+    while also automatically generating its argument list and registering it.
 
     Args:
       self: The Command class definition.
@@ -233,11 +276,16 @@ class Command:
           i += 1
           continue
 
-        if current_option.get('nargs') == "*": # Set * nargs to be the remaining length of cli_args
-          current_option['nargs'] = len(cli_args) - i
+        if current_option.get('nargs') == 1:
+          optional_args[current_option.get('formatted_name')] = cli_args[i+1]
 
 
-        optional_args[current_option.get('formatted_name')] = cli_args[(i+1):(i+1+current_option.get('nargs'))] # ┬ Set the values of the current_option to be
+        else:
+
+          if current_option.get('nargs') == "*": # Set * nargs to be the remaining length of cli_args
+            current_option['nargs'] = len(cli_args) - i
+
+          optional_args[current_option.get('formatted_name')] = cli_args[(i+1):(i+1+current_option.get('nargs'))] # ┬ Set the values of the current_option to be
                                                                                                                 # ├ a range from cli_args from the current index + 1
                                                                                                                 # └ to the current index + 1 + nargs for current option.
 
@@ -247,4 +295,3 @@ class Command:
       optional_args = None
 
     return (positional_args, optional_args)
-
