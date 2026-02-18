@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
   workflow_dispatch:  # For manual testing
+  push:
+    paths:
+      - 'setup.py' # Triggers on changes to setup.py so we only update pypi when we have an updated setup file.
 
 jobs:
   build_wheels:
