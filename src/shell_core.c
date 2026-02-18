@@ -887,35 +887,65 @@ char* expand_variables(const char* input) {
 }
 
 // CAPTURE OUTPUT (Runs a command and returns its stdout)
-// Used by Subshell Expansion
 char* capture_command_output(char *cmd) {
-  int pipefd[2];
-  if (pipe(pipefd) == -1) return strdup("");
-
-  pid_t pid = fork();
-  if (pid == 0) {
-    // Child: Redirect stdout to pipe
-    close(pipefd[0]);
-    dup2(pipefd[1], STDOUT_FILENO);
-    close(pipefd[1]);
-
-    // Execute the inner command recursively
-    execute_pipeline(cmd);
-    exit(0);
+  // 1. Create a Temporary File
+  // tmpfile() creates a file that is automatically deleted when closed.
+  FILE *tmp = tmpfile();
+  if (!tmp) {
+    perror("tmpfile");
+    return strdup("");
   }
 
-  // Parent: Read from pipe
-  close(pipefd[1]);
+  // Get the File Descriptor for the temp file
+  int tmp_fd = fileno(tmp);
+
+  // 2. Save the original STDOUT so we can restore it later
+  int orig_stdout = dup(STDOUT_FILENO);
+
+  // 3. Flush buffers to ensure no previous output gets mixed in
+  fflush(stdout);
+
+  // 4. Redirect STDOUT to the Temp File
+  // Now, any command (Python or External) that writes to stdout 
+  // will actually write to our file.
+  if (dup2(tmp_fd, STDOUT_FILENO) == -1) {
+    perror("dup2");
+    fclose(tmp);
+    close(orig_stdout);
+    return strdup("");
+  }
+
+  // 5. Run the Pipeline
+  // This executes the command string. Because STDOUT is redirected,
+  // all output goes into tmp_fd.
+  execute_pipeline(cmd);
+
+  // 6. Flush and Restore STDOUT
+  fflush(stdout); 
+  dup2(orig_stdout, STDOUT_FILENO);
+  close(orig_stdout);
+
+  // 7. Read the Captured Data
+  // Rewind the file to the beginning
+  rewind(tmp);
+
+  // Allocate a buffer (4KB is a standard page size, adjust if needed)
   char buffer[4096];
   memset(buffer, 0, sizeof(buffer));
 
-  // Read output (simplified: reads up to 4kb)
-  int n = read(pipefd[0], buffer, sizeof(buffer) - 1);
-  close(pipefd[0]);
-  wait(NULL); // Wait for child
+  // Read the file content
+  size_t n = fread(buffer, 1, sizeof(buffer) - 1, tmp);
 
-  // Strip trailing newline common in shell outputs
-  if (n > 0 && buffer[n-1] == '\n') buffer[n-1] = '\0';
+  // Cleanup the temp file (this also deletes it from disk)
+  fclose(tmp);
+
+  // 8. Trim Trailing Newline
+  // Shell substitution $(...) usually strips the trailing newline.
+  if (n > 0 && buffer[n-1] == '\n') {
+    buffer[n-1] = '\0';
+  } else {
+    buffer[n] = '\0'; // Ensure null-termination
+  }
 
   return strdup(buffer);
 }
