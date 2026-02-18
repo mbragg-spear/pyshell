@@ -1,41 +1,56 @@
+// SUPPRESS MICROSOFT WARNINGS
+// These must be defined BEFORE any includes
+#define _CRT_SECURE_NO_WARNINGS    // Shuts up "strcpy is unsafe"
+#define _CRT_NONSTDC_NO_DEPRECATE  // Shuts up "strdup is deprecated"
+#define PY_SSIZE_T_CLEAN
+
+#include <Python.h> // Must be included first
+
+// WINDOWS COMPATIBILITY BLOCK
 #ifdef _WIN32
-    #include <windows.h>
-    #include <process.h>
-    #include <io.h>
-    #include <fcntl.h>
+  #include <windows.h>
+  #include <process.h>
+  #include <io.h>
+  #include <fcntl.h>
+  #include <conio.h> // Fixes "warning C4013: '_getch' undefined"
 
-    // Map POSIX names to Windows CRT functions
-    #define pipe(fds) _pipe(fds, 4096, _O_BINARY) // Windows pipes need size & mode
-    #define close _close
-    #define read _read
-    #define write _write
-    #define dup _dup
-    #define dup2 _dup2
-    #define fileno _fileno
-    #define isatty _isatty
-    #define unlink _unlink
+  // Map POSIX names to Windows CRT functions
+  #define pipe(fds) _pipe(fds, 4096, _O_BINARY)
+  #define close _close
+  #define read _read
+  #define write _write
+  #define dup _dup
+  #define dup2 _dup2
+  #define fileno _fileno
+  #define isatty _isatty
+  #define unlink _unlink
+  #define strdup _strdup // Fixes "warning C4996: strdup deprecated"
 
-    #define STDIN_FILENO 0
-    #define STDOUT_FILENO 1
-    #define STDERR_FILENO 2
+  #define STDIN_FILENO 0
+  #define STDOUT_FILENO 1
+  #define STDERR_FILENO 2
 
-    // Windows setenv replacement
-    int setenv(const char *name, const char *value, int overwrite) {
-        if (!overwrite && getenv(name)) return 0;
-        return _putenv_s(name, value);
-    }
+  // Windows setenv replacement
+  int setenv(const char *name, const char *value, int overwrite) {
+    if (!overwrite && getenv(name)) return 0;
+    return _putenv_s(name, value);
+  }
 
-    typedef intptr_t pid_t; // Windows handles are pointer-sized
+  // REMOVED: typedef intptr_t pid_t;
+  // Python.h already defines pid_t on Windows. Redefining it causes Error C2371.
+
 #else
-  #include <termios.h>
+  // Linux / MacOS
+  #include <sys/wait.h>
   #include <unistd.h>
+  #include <termios.h>
 #endif
-#include <Python.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <stdbool.h>
-
 
 #define MAX_HISTORY 50
 #define MAX_ARGS 64
