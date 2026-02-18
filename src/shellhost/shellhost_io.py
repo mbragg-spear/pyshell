@@ -3,16 +3,12 @@
 import shellparser
 import subprocess
 import threading
-import fcntl
 import sys
 import os
 
 class JobIO:
   def __init__(self):
     self._r_fd, self._w_fd = os.pipe()
-
-#    fl = fcntl.fcntl(self._r_fd, fcntl.F_GETFL)
-#    fcntl.fcntl(self._r_fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
     self.closed = False
 
