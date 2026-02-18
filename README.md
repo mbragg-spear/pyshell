@@ -12,7 +12,7 @@ This section will cover how to get this library installed on your system.
 To install this in pip-managed systems, you can just `pip install shellhost`.
 
 #### Known Issues
-* `externally-managed-environment`
+* `externally-managed-environment`  
   If you attempt to use pip for this installation on a system that uses an external package manager for
   Python libraries (`apt`, `yum`, `dnf`, `homebrew`) you will encounter an `externally-managed-environment` error.
 
@@ -147,3 +147,4 @@ shell> MY_VAR=$(add_five $MY_VAR | add_five)
 shell> echo $MY_VAR
 15
 ```
+
