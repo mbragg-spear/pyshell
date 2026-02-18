@@ -1,6 +1,31 @@
 #ifdef _WIN32
-  #include <conio.h>
-  #include <windows.h>
+    #include <windows.h>
+    #include <process.h>
+    #include <io.h>
+    #include <fcntl.h>
+
+    // Map POSIX names to Windows CRT functions
+    #define pipe(fds) _pipe(fds, 4096, _O_BINARY) // Windows pipes need size & mode
+    #define close _close
+    #define read _read
+    #define write _write
+    #define dup _dup
+    #define dup2 _dup2
+    #define fileno _fileno
+    #define isatty _isatty
+    #define unlink _unlink
+
+    #define STDIN_FILENO 0
+    #define STDOUT_FILENO 1
+    #define STDERR_FILENO 2
+
+    // Windows setenv replacement
+    int setenv(const char *name, const char *value, int overwrite) {
+        if (!overwrite && getenv(name)) return 0;
+        return _putenv_s(name, value);
+    }
+
+    typedef intptr_t pid_t; // Windows handles are pointer-sized
 #else
   #include <termios.h>
   #include <unistd.h>
@@ -32,9 +57,71 @@ typedef struct PyCommand {
 
 static PyCommand *py_cmd_head = NULL;
 
-// --- FUNCTION DECLARATIONS ---
-//extern char* get_input(const char* prompt);
-//extern void execute_pipeline(char *input);
+
+
+
+// Cross-platform Spawner
+pid_t spawn_command(char **argv, int input_fd, int output_fd) {
+#ifdef _WIN32
+  // --- WINDOWS IMPLEMENTATION ---
+
+  // 1. Save current Standard IO so we can restore it later
+  int orig_stdin = dup(STDIN_FILENO);
+  int orig_stdout = dup(STDOUT_FILENO);
+
+  // 2. Redirect Standard IO to the pipes provided
+  if (input_fd != STDIN_FILENO) {
+    dup2(input_fd, STDIN_FILENO);
+    close(input_fd); // Close our copy of the pipe end
+  }
+  if (output_fd != STDOUT_FILENO) {
+    dup2(output_fd, STDOUT_FILENO);
+    close(output_fd);
+  }
+
+  // 3. Spawn the child
+  // _P_NOWAIT returns a Process Handle (acting as PID) immediately
+  pid_t pid = _spawnvp(_P_NOWAIT, argv[0], argv);
+
+  if (pid == -1) {
+    fprintf(stderr, "Error spawning %s: %s\n", argv[0], strerror(errno));
+  }
+
+  // 4. Restore Standard IO for the parent shell
+  dup2(orig_stdin, STDIN_FILENO);
+  dup2(orig_stdout, STDOUT_FILENO);
+  close(orig_stdin);
+  close(orig_stdout);
+
+  return pid;
+
+#else
+  // --- POSIX (Linux/Mac) IMPLEMENTATION ---
+
+  pid_t pid = fork();
+  if (pid == 0) {
+    // Child Process
+    if (input_fd != STDIN_FILENO) {
+      dup2(input_fd, STDIN_FILENO);
+      close(input_fd);
+    }
+    if (output_fd != STDOUT_FILENO) {
+      dup2(output_fd, STDOUT_FILENO);
+      close(output_fd);
+    }
+
+    // Execute
+    execvp(argv[0], argv);
+    perror("execvp failed");
+    exit(1);
+  }
+
+  // Parent returns the child's PID
+  return pid;
+#endif
+}
+
+
 
 
 // --- PYTHON MODULE METHODS (Exposed to Python) ---
@@ -442,31 +529,17 @@ void execute_pipeline(char *input) {
         pids[pid_count++] = 0;
 
       } else {
-        // External Command -> Fork it
-        pid_t pid = fork();
-        if (pid == 0) {
-          // CHILD
-          if (input_fd != STDIN_FILENO) {
-            dup2(input_fd, STDIN_FILENO);
-            close(input_fd);
-          }
-          if (output_fd != STDOUT_FILENO) {
-            dup2(output_fd, STDOUT_FILENO);
-            close(output_fd);
-          }
-          // Close the read-end of the new pipe if we opened one
-          if (i < cmd_count - 1) close(pipe_fds[0]);
-          execvp(argv[0], argv);
-          perror("exec failed");
-          exit(1);
-        } else {
-          // PARENT
-          pids[pid_count++] = pid;
 
-          // Close used FDs in parent immediately
-          if (input_fd != STDIN_FILENO) close(input_fd);
-          if (output_fd != STDOUT_FILENO) close(output_fd);
+        // We pass the pipe FDs. The helper handles the dup2/close logic.
+        pid_t pid = spawn_command(argv, input_fd, output_fd);
+
+        if (pid > 0) {
+          pids[pid_count++] = pid;
         }
+
+        // Parent cleanup: Close the pipe ends we handed off
+        if (input_fd != STDIN_FILENO) close(input_fd);
+        if (output_fd != STDOUT_FILENO) close(output_fd);
       }
 
       // Set up for next iteration
@@ -477,7 +550,14 @@ void execute_pipeline(char *input) {
       // Wait for ALL children
       for (int j = 0; j < pid_count; j++) {
         if (pids[j] > 0) {
-          waitpid(pids[j], NULL, 0);
+#ifdef _WIN32
+  // Windows wait
+  int status;
+  _cwait(&status, pids[j], 0);
+#else
+  // POSIX wait
+  waitpid(pids[j], NULL, 0);
+#endif
         }
       }
     }
