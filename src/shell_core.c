@@ -35,7 +35,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-#include <sys/wait.h>
 
 
 #define MAX_HISTORY 50
