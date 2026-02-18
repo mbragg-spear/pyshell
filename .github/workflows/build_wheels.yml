@@ -20,11 +20,16 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel
 
       # Used to build the wheels
       - name: Build wheels
-        uses: pypa/cibuildwheel@3.3.1
+        run: python -m cibuildwheel --output-dir wheelhouse
         env:
           # Skip 32 bit builds to save time
           CIBW_SKIP: "*-win32 *-manylinux_i686"
