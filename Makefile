@@ -23,12 +23,6 @@ build:
 
 install: deps build
 	sudo dpkg -i deb_dist/*.deb || sudo apt-get install -f -y
-
-reinstall: clean deps build
-	-sudo apt remove python3-shellhost -y
-	sudo dpkg -i deb_dist/*.deb || sudo apt-get install -f -y
-
-
 endif
 
 # --- FEDORA / RHEL / CENTOS (dnf + .rpm) ---
@@ -52,20 +46,27 @@ deps:
 	# Check if brew is installed
 	@which brew > /dev/null || (echo "Homebrew required. Visit brew.sh"; exit 1)
 
+	@brew tap | grep -q "^user/local-dev$$" || brew tap-new user/local-dev --no-git
+
 build:
 	# 1. Get absolute path of current directory
 	$(eval CUR_DIR := $(shell pwd))
-	# 2. Create a temporary Formula file pointing to this directory
-	sed 's|CURRENT_DIR|$(CUR_DIR)|g' Formula.rb.in > local_formula.rb
 
-install: build
+	tar --exclude='.git' --exclude='shellhost.tar.gz' -czf shellhost.tar.gz .
+
+	# 2. Create a temporary Formula file pointing to this directory
+	sed 's|CURRENT_DIR|$(CUR_DIR)|g' Formula.rb.in > shellhost.rb
+
+install: deps build
+	cp shellhost.rb $$(brew --repo user/local-dev)/Formula/shellhost.rb
+
 	# Install using the local formula in verbose mode to show compilation
-	brew install --build-from-source ./local_formula.rb
+	brew install --build-from-source user/local-dev/shellhost || brew upgrade user/local-dev/shellhost
 	# Clean up
-	rm local_formula.rb
+	rm shellhost.rb shellhost.tar.gz
 endif
 
 # --- CLEANUP ---
 clean:
-	rm -rf deb_dist dist build *.egg-info shellhost*.rb
+	rm -rf deb_dist dist build *.egg-info local_formula.rb
 	rm -rf *.tar.gz *.rpm

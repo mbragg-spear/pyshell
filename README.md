@@ -12,15 +12,21 @@ This section will cover how to get this library installed on your system.
 
 ### Requirements
 - python3
-- pip
-- gcc
-- make
+- setuptools
 
 ### Installation
+
+#### Systems that use pip
+```
+pip install shellhost
+```
+
+#### Systems with externally managed packages
+
 1. Clone the repository
 ```
-git clone https://github.com/mbragg-spear/shellhost-personal.git
-cd shellhost-personal
+git clone https://github.com/mbragg-spear/shellhost.git
+cd shellhost
 ```
 
 2. Run the installation
