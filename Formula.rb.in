@@ -1,0 +1,14 @@
+class MyLibrary < Formula
+  desc "My Custom Python + C Library"
+  homepage "https://github.com/yourname/repo"
+  # We will dynamically replace CURRENT_DIR with the real path in the Makefile
+  url "file://CURRENT_DIR"
+  version "1.0"
+
+  depends_on "python@3.12" 
+
+  def install
+    # This installs the library into the Homebrew cellar
+    system "python3", "-m", "pip", "install", *std_pip_args, "."
+  end
+end

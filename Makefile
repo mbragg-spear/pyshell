@@ -1,52 +1,71 @@
-# 1. Detect the Operating System
-# If output is empty, we assume Linux/Unix
-ifeq ($(OS),Windows_NT)
-    DETECTED_OS := Windows
-else
-    DETECTED_OS := $(shell uname -s)
+# MASTER MAKEFILE for Cross-Platform Distribution
+
+# --- OS DETECTION ---
+OS := $(shell uname -s)
+ifeq ($(OS),Linux)
+    # Check if Debian-based (uses apt) or RHEL-based (uses dnf/yum)
+    IS_DEBIAN := $(shell if [ -f /etc/debian_version ]; then echo yes; else echo no; fi)
+    IS_RHEL := $(shell if [ -f /etc/redhat-release ]; then echo yes; else echo no; fi)
 endif
 
-# 2. Set Defaults (Linux/Mac)
-CC = gcc
-CFLAGS = -fPIC -Wall -Wextra -O2 -m64
-LDFLAGS = -shared
-RM = rm -rf
-TARGET_LIB = pyshell/libshellparser.so
+# --- DEFAULT TARGET ---
+all: install
 
-# 3. Override for Windows
-ifeq ($(DETECTED_OS),Windows)
-	# Recommended: Use MinGW gcc if available (easier compatibility with existing flags)
-	CC = gcc
+# --- DEBIAN / UBUNTU (apt + .deb) ---
+ifeq ($(IS_DEBIAN),yes)
+deps:
+	sudo apt-get update
+	sudo apt-get install -y python3-stdeb debhelper python3-all python3-dev build-essential
 
-  # Windows uses .dll, not .so
-	TARGET_LIB = pyshell\libshellparser.dll
+build:
+	rm -rf deb_dist dist build
+	python3 setup.py --command-packages=stdeb.command bdist_deb
 
-	# Windows command to delete files
-	RM = del /f /s /q
+install: deps build
+	sudo dpkg -i deb_dist/*.deb || sudo apt-get install -f -y
 
-	# Remove -fPIC (not needed/supported on Windows generally)
-	CFLAGS = -Wall -Wextra -O2
+reinstall: clean deps build
+	-sudo apt remove python3-shellhost -y
+	sudo dpkg -i deb_dist/*.deb || sudo apt-get install -f -y
+
+
 endif
 
-# 4. Standard Rules
-SRC = shellparser.c
+# --- FEDORA / RHEL / CENTOS (dnf + .rpm) ---
+ifeq ($(IS_RHEL),yes)
+deps:
+	sudo dnf install -y rpm-build python3-devel gcc redhat-rpm-config
 
-all: $(TARGET_LIB)
+build:
+	rm -rf dist build
+	# bdist_rpm creates the spec file and the rpm automatically
+	python3 setup.py bdist_rpm
 
-$(TARGET_LIB): $(SRC)
-	@echo [1/2] Building for $(DETECTED_OS)...
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SRC) -o $(TARGET_LIB)
-	@echo Compiled $(TARGET_LIB) successfully.
+install: deps build
+	# Find the generated RPM (usually in dist/) and install it
+	sudo dnf install -y dist/*.noarch.rpm dist/*.x86_64.rpm
+endif
 
+# --- MACOS (Homebrew) ---
+ifeq ($(OS),Darwin)
+deps:
+	# Check if brew is installed
+	@which brew > /dev/null || (echo "Homebrew required. Visit brew.sh"; exit 1)
+
+build:
+	# 1. Get absolute path of current directory
+	$(eval CUR_DIR := $(shell pwd))
+	# 2. Create a temporary Formula file pointing to this directory
+	sed 's|CURRENT_DIR|$(CUR_DIR)|g' Formula.rb.in > local_formula.rb
+
+install: build
+	# Install using the local formula in verbose mode to show compilation
+	brew install --build-from-source ./local_formula.rb
+	# Clean up
+	rm local_formula.rb
+endif
+
+# --- CLEANUP ---
 clean:
-	$(RM) $(TARGET_LIB)
-	$(RM) build pyshell.egg-info
-	@echo Cleaned up build artifacts.
-
-install: $(TARGET_LIB)
-	@echo [2/2] Installing python package...
-	python3 -m pip install . --break-system-packages
-	@echo Cleaning up...
-	$(RM) build pyshell.egg-info
-
-.PHONY: all clean install
+	rm -rf deb_dist dist build *.egg-info shellhost*.rb
+	rm -rf *.tar.gz *.rpm

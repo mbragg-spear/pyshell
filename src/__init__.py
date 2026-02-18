@@ -139,6 +139,20 @@ class PyShell:
 
     return [re.sub(pattern, replace_match, user_string) for user_string in user_input]
 
+  def expand_subshells(self, user_input):
+    """ Expands subshell operators from the user input.
+
+    Args:
+      user_input: The list of arguments from the user input.
+
+    Returns:
+      An updated list of user_input with subshells expanded.
+    """
+
+    # Pattern: Finds $(*)
+    pass
+
+
   def handle_variable_assignment(self, command):
     """ Handles assignment of variables within the shell.
 
@@ -183,7 +197,12 @@ class PyShell:
         if user_input is None:
           continue # User pressed enter with no input.
 
-        user_input = self.expand_variables(user_input) # Perform variable expansion
+        ### [1]: Expand variables
+        user_input = self.expand_variables(user_input)
+
+
+        ### [2]: Expand subshells
+        user_input = self.expand_subshells(user_input)
 
         if self.handle_variable_assignment(user_input[0]): # Returns True if successful
           continue # User assigned a variable, no execution needed.
