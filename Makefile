@@ -63,26 +63,26 @@ endif
 ifeq ($(OS),Darwin)
 deps:
 	# Check if brew is installed
-	@echo "[1/3] Checking for homebrew..."
 	@which brew > /dev/null || (echo "Homebrew required. Visit brew.sh"; exit 1)
 
+	@brew tap | grep -q "^user/local-dev$$" || brew tap-new user/local-dev --no-git
+
 build:
-	@echo "[2/3] Creating homebrew formula..."
 	# 1. Get absolute path of current directory
 	$(eval CUR_DIR := $(shell pwd))
-	# 2. Create a temporary Formula file pointing to this directory
-	sed 's|CURRENT_DIR|$(CUR_DIR)|g' Formula.rb.in > local_formula.rb
 
-install: build
-	@echo "[3/3] Installing with homebrew..."
+	tar --exclude='.git' --exclude='shellhost.tar.gz' -czf shellhost.tar.gz .
+
+	# 2. Create a temporary Formula file pointing to this directory
+	sed 's|CURRENT_DIR|$(CUR_DIR)|g' Formula.rb.in > shellhost.rb
+
+install: deps build
+	cp shellhost.rb $$(brew --repo user/local-dev)/Formula/shellhost.rb
+
 	# Install using the local formula in verbose mode to show compilation
-	brew install --build-from-source ./local_formula.rb
+	brew install --build-from-source user/local-dev/shellhost || brew upgrade user/local-dev/shellhost
 	# Clean up
-	rm local_formula.rb
-	@echo "[DONE] Installation succeeded!"
-uninstall:
-	@echo "Uninstalling..."
-	-sudo brew uninstall python3-shellhost -y
+	rm shellhost.rb shellhost.tar.gz
 endif
 
 # --- CLEANUP ---
