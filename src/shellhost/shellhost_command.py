@@ -63,8 +63,22 @@ class Command:
       Whatever the function for this Command returns.
     """
     this_command = args[0]
-    args = args[1:]
-    p_args, o_args = self.parse(args)
+    cli_args = list(args[1:])
+    if not cli_args and not sys.stdin.isatty():
+      try:
+        # Read from the C-pipe, strip newline
+        # Example: "5\n" -> "5"
+        stdin_data = sys.stdin.read().strip()
+
+        if stdin_data:
+          # Split by whitespace to handle multiple args if needed
+          # Example: "1 2" -> ["1", "2"]
+          cli_args.extend(stdin_data.split())
+      except Exception:
+        # If reading fails, just proceed with empty args and let parse() handle the error
+        pass
+
+    p_args, o_args = self.parse(cli_args)
     try:
       if p_args is not None and o_args is not None: return self.func(*p_args, **o_args)
       elif p_args is not None: return self.func(*p_args)

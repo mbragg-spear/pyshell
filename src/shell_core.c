@@ -945,13 +945,6 @@ static PyObject* shell_start(PyObject *self, PyObject *args) {
       continue;
     }
 
-    // Handle Assignment (VAR=VAL)
-    // We do this on raw input so expansions don't mess up the assignment syntax
-    if (handle_assignment(raw_input)) {
-      free(raw_input);
-      continue; // Skip execution
-    }
-
     // Expand Variables ($VAR -> VAL)
     char *expanded_vars = expand_variables(raw_input);
     free(raw_input);
@@ -959,6 +952,13 @@ static PyObject* shell_start(PyObject *self, PyObject *args) {
     // Expand Subshells ($(cmd) -> output)
     char *final_cmd = expand_subshells(expanded_vars);
     free(expanded_vars);
+
+    // Handle Assignment (VAR=VAL)
+    // We do this on raw input so expansions don't mess up the assignment syntax
+    if (handle_assignment(final_cmd)) {
+      free(final_cmd);
+      continue; // Skip execution
+    }
 
     // Execute Pipeline
     execute_pipeline(final_cmd);
