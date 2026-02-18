@@ -5,6 +5,8 @@ on:
     types: [published]
   workflow_dispatch:  # For manual testing
   push:
+    branches:
+      - main
     paths:
       - 'setup.py' # Triggers on changes to setup.py so we only update pypi when we have an updated setup file.
 
