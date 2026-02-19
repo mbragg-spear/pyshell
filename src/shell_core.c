@@ -870,16 +870,27 @@ char* expand_variables(const char* input) {
 }
 
 // CAPTURE OUTPUT (Runs a command and returns its stdout)
+// Forward declarations for mutual recursion
+char* expand_variables(const char* input);
+char* expand_subshells(const char* input);
+
 char* capture_command_output(char *cmd) {
   FILE *tmp = tmpfile();
   if (!tmp) return strdup("");
 
   int tmp_fd = fileno(tmp);
 
-  // Pass the temporary file descriptor directly into the pipeline
-  execute_pipeline(cmd, STDIN_FILENO, tmp_fd);
+  char *expanded_vars = expand_variables(cmd);
+  char *final_cmd = expand_subshells(expanded_vars);
 
-  fflush(stdout); 
+  // Pass the temporary file descriptor directly into the pipeline
+  execute_pipeline(final_cmd, STDIN_FILENO, tmp_fd);
+
+  // Clean up allocated strings
+  free(expanded_vars);
+  free(final_cmd);
+
+  fflush(stdout);
   rewind(tmp);
 
   char buffer[4096];
