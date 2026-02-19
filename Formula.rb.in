@@ -3,7 +3,7 @@ class Shellhost < Formula
   homepage "https://github.com/mtbragg-spear/shellhost"
   # We will dynamically replace CURRENT_DIR with the real path in the Makefile
   url "file://CURRENT_DIR/shellhost.tar.gz"
-  version "2.0.4"
+  version "2.1.0"
 
   depends_on "python3" 
 

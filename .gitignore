@@ -1,6 +1,7 @@
 *.swp
 test/
+dev/
 *.tar.gz
 deb_dist/
 dist/
-shell.egg-info/
+*.egg-info/

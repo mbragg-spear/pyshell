@@ -11,7 +11,6 @@
   #include <windows.h>
   #include <process.h>
   #include <io.h>
-  #include <fcntl.h>
   #include <conio.h> // Fixes "warning C4013: '_getch' undefined"
 
   // Map POSIX names to Windows CRT functions
@@ -25,10 +24,13 @@
   #define isatty _isatty
   #define unlink _unlink
   #define strdup _strdup // Fixes "warning C4996: strdup deprecated"
+  #define open _open
 
   #define STDIN_FILENO 0
   #define STDOUT_FILENO 1
   #define STDERR_FILENO 2
+  #define FILE_MODE (_S_IREAD | _S_IWRITE)
+
 
   // Windows setenv replacement
   int setenv(const char *name, const char *value, int overwrite) {
@@ -44,6 +46,7 @@
   #include <sys/wait.h>
   #include <unistd.h>
   #include <termios.h>
+  #define FILE_MODE 0644
 #endif
 
 #include <stdio.h>
@@ -51,6 +54,8 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdbool.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #define MAX_HISTORY 50
 #define MAX_ARGS 64
@@ -364,11 +369,11 @@ int tokenize_command(char *input_str, char ***argv_ptr) {
       char_escaped = false;
     }
 
-    // [#2] Unquoted Operators (|, <, >, (, ))
-    // Note: We only split on these if we aren't in a subshell or quotes
+    // [#2] Unquoted Operators (|, <, >, (, ), &)
     else if (!single_quote && !double_quote && !char_escaped &&
          (current_char == '|' || current_char == '<' ||
-          current_char == '>' || current_char == '(' || current_char == ')')) {
+          current_char == '>' || current_char == '(' || current_char == ')' ||
+          current_char == '&')) {
 
       // A. Substitution Start "$("
       if (current_char == '(' && buff_position > 0 && arg_buffer[buff_position-1] == '$') {
@@ -392,24 +397,29 @@ int tokenize_command(char *input_str, char ***argv_ptr) {
 
       // --- Delimiter Logic ---
 
-      // I. Flush current word if exists
+      // 1. Flush current word if exists
       if (buff_position > 0) {
         arg_buffer[buff_position] = '\0';
         add_arg(argv_ptr, &argc, arg_buffer);
         buff_position = 0;
       }
 
-      // II. Handle Operators as separate args
-      // Check for ">>"
-      if (current_char == '>' && input_str[i+1] == '>') {
+      // 2. Handle Operators as separate args
+      if (current_char == '&' && input_str[i+1] == '&') {
+        add_arg(argv_ptr, &argc, "&&");
+        i++; // Skip the second '&'
+      } else if (current_char == '|' && input_str[i+1] == '|') {
+        add_arg(argv_ptr, &argc, "||");
+        i++; // Skip the second '|'
+      } else if (current_char == '>' && input_str[i+1] == '>') {
         add_arg(argv_ptr, &argc, ">>");
-        i++; // Skip next char
+        i++; // Skip the second '>'
       } else {
+        // Catch-all for single operators: >, <, |
         char op_str[2] = {current_char, '\0'};
         add_arg(argv_ptr, &argc, op_str);
       }
     }
-
     // [#3] Whitespace
     else if (current_char == ' ' || current_char == '\n') {
       if (single_quote || double_quote || subshell_depth > 0) {
@@ -454,97 +464,181 @@ int tokenize_command(char *input_str, char ***argv_ptr) {
 }
 
 
-// The main execution logic handling Pipes and Forking
-void execute_pipeline(char *input, int default_in, int default_out) {
-  char *commands[16];
-  int cmd_count = 0;
-
-  // Tokenize by pipe symbol
-  char *token = strtok(input, "|");
-  while(token != NULL && cmd_count < 16) {
-    commands[cmd_count++] = token;
-    token = strtok(NULL, "|");
-  }
-
-  int i;
-  int prev_fd = STDIN_FILENO; // Read end of the previous pipe
+// Helper: Executes a slice of tokens that only contains commands and pipes (|)
+int execute_simple_pipeline(char **tokens, int count, int default_in, int default_out) {
+  int i = 0;
+  int prev_fd = default_in;
   int pipe_fds[2];
-
-  // Array to keep track of child PIDs so we can wait for them ALL at the end
   pid_t pids[16];
   int pid_count = 0;
+  int last_exit_code = 0;
 
-  for (i = 0; i < cmd_count; i++) {
+  while (i < count) {
+    char *cmd_argv[64];
+    int cmd_argc = 0;
 
-    char **argv = NULL; // Important: Initialize to NULL
-    int argc = tokenize_command(commands[i], &argv);
+    int redirect_in_fd = -1;
+    int redirect_out_fd = -1;
 
-    if (argc > 0 && argv[0] != NULL) {
+    // Extract arguments and handle redirection until we hit a pipe or the end
+    while (i < count && strcmp(tokens[i], "|") != 0) {
 
-      // Prepare Pipe for Next Command
-      int input_fd = prev_fd;
-      int output_fd = default_out;
-
-      if (i < cmd_count - 1) {
-        if (pipe(pipe_fds) == -1) { // Create pipe and make sure it worked.
-          perror("pipe failed");
-          exit(1);
+      if (strcmp(tokens[i], "<") == 0) {
+        if (i + 1 < count) {
+          redirect_in_fd = open(tokens[i+1], O_RDONLY);
+          if (redirect_in_fd < 0) perror(tokens[i+1]);
+          i += 2; // Skip operator and filename
+        } else {
+          fprintf(stderr, "syntax error near unexpected token `<'\n");
+          i++;
         }
-        output_fd = pipe_fds[1]; // Write to this pipe
       }
-
-      // Determine Command Type
-      PyCommand *py_cmd = find_python_command(argv[0]);
-
-      if (py_cmd) {
-        // Python commands run in the PARENT process in this architecture.
-        // This blocks the parent, so we can't truly parallelize Python-to-Python pipes
-        // without threading, but we MUST close FDs correctly to avoid hanging.
-
-        execute_python_command(argv[0], argv, input_fd, output_fd);
-
-        // Python is done, close the ends we used
-        if (input_fd != default_in) close(input_fd);
-        if (output_fd != default_out) close(output_fd);
-
-        // Mark PID as 0 (skipped) since we ran it inline
-        pids[pid_count++] = 0;
-
-      } else {
-
-        // We pass the pipe FDs. The helper handles the dup2/close logic.
-        pid_t pid = spawn_command(argv, input_fd, output_fd);
-
-        if (pid > 0) {
-          pids[pid_count++] = pid;
+      else if (strcmp(tokens[i], ">") == 0) {
+        if (i + 1 < count) {
+          redirect_out_fd = open(tokens[i+1], O_WRONLY | O_CREAT | O_TRUNC, FILE_MODE);
+          if (redirect_out_fd < 0) perror(tokens[i+1]);
+          i += 2;
+        } else {
+          fprintf(stderr, "syntax error near unexpected token `>'\n");
+          i++;
         }
-
-        // Parent cleanup: Close the pipe ends we handed off
-        if (input_fd != STDIN_FILENO) close(input_fd);
-        if (output_fd != STDOUT_FILENO) close(output_fd);
       }
-
-      // Set up for next iteration
-      if (i < cmd_count - 1) {
-        prev_fd = pipe_fds[0]; // Next command reads from the read-end
-      }
-
-      // Wait for ALL children
-      for (int j = 0; j < pid_count; j++) {
-        if (pids[j] > 0) {
-#ifdef _WIN32
-  // Windows wait
-  int status;
-  _cwait(&status, pids[j], 0);
-#else
-  // POSIX wait
-  waitpid(pids[j], NULL, 0);
-#endif
+      else if (strcmp(tokens[i], ">>") == 0) {
+        if (i + 1 < count) {
+          redirect_out_fd = open(tokens[i+1], O_WRONLY | O_CREAT | O_APPEND, FILE_MODE);
+          if (redirect_out_fd < 0) perror(tokens[i+1]);
+          i += 2;
+        } else {
+          fprintf(stderr, "syntax error near unexpected token `>>'\n");
+          i++;
         }
+      }
+      else {
+        // Normal argument
+        cmd_argv[cmd_argc++] = tokens[i++];
       }
     }
+    cmd_argv[cmd_argc] = NULL;
+
+    // Skip execution if no command was given (e.g., just "> file.txt")
+    if (cmd_argc == 0) {
+      if (redirect_in_fd != -1) close(redirect_in_fd);
+      if (redirect_out_fd != -1) close(redirect_out_fd);
+      if (i < count && strcmp(tokens[i], "|") == 0) i++;
+      continue;
+    }
+
+    // --- PIPELINE SETUP ---
+    int input_fd = prev_fd;
+    int output_fd = default_out;
+    int has_next = (i < count && strcmp(tokens[i], "|") == 0);
+
+    if (has_next) {
+      if (pipe(pipe_fds) == -1) { perror("pipe"); exit(1); }
+      output_fd = pipe_fds[1]; // By default, write to the pipe
+    }
+
+    // --- REDIRECTION OVERRIDES ---
+    // If the user specified a file, it overrides the pipe or default streams
+    if (redirect_in_fd != -1) {
+      input_fd = redirect_in_fd;
+    }
+    if (redirect_out_fd != -1) {
+      // If there's a pipe AND file output (cmd > file | cmd2),
+      // we still open the pipe for the next command, but THIS command writes to the file.
+      output_fd = redirect_out_fd;
+    }
+
+    // --- EXECUTION ---
+    PyCommand *py_cmd = find_python_command(cmd_argv[0]);
+    if (py_cmd) {
+      last_exit_code = execute_python_command(cmd_argv[0], cmd_argv, input_fd, output_fd);
+      pids[pid_count++] = 0;
+    } else {
+      pid_t pid = spawn_command(cmd_argv, input_fd, output_fd);
+      if (pid > 0) pids[pid_count++] = pid;
+    }
+
+    // --- CLEANUP FDs IN PARENT ---
+    // Close pipe ends handed to the child
+    if (input_fd != default_in && input_fd != redirect_in_fd) close(input_fd);
+    if (output_fd != default_out && output_fd != redirect_out_fd) close(output_fd);
+
+    // Close the opened files
+    if (redirect_in_fd != -1) close(redirect_in_fd);
+    if (redirect_out_fd != -1) close(redirect_out_fd);
+
+    // --- ADVANCE TO NEXT PIPELINE STAGE ---
+    if (has_next) {
+      prev_fd = pipe_fds[0]; // Next command reads from the pipe
+      i++; // Skip the "|" token
+    }
   }
+
+  // Wait for all children and capture the exit code of the last command
+  for (int j = 0; j < pid_count; j++) {
+    if (pids[j] > 0) {
+#ifdef _WIN32
+      int status;
+      _cwait(&status, pids[j], 0);
+      last_exit_code = status;
+#else
+      int status;
+      waitpid(pids[j], &status, 0);
+      if (WIFEXITED(status)) last_exit_code = WEXITSTATUS(status);
+#endif
+    }
+  }
+  return last_exit_code;
 }
+
+
+// Top-Level
+int execute_logic_line(char *input, int default_in, int default_out) {
+  char **tokens = NULL;
+  int total_tokens = tokenize_command(input, &tokens);
+
+  if (total_tokens <= 0 || tokens == NULL) return 0;
+
+  int i = 0;
+  int last_exit_code = 0;
+  int skip_next = 0; // 0 = execute, 1 = skip
+
+  while (i < total_tokens) {
+    int start = i;
+
+    // Fast-forward until we hit a logical operator
+    while (i < total_tokens && strcmp(tokens[i], "&&") != 0 && strcmp(tokens[i], "||") != 0) {
+      i++;
+    }
+
+    // Execute this chunk if we aren't skipping it
+    if (!skip_next && (i > start)) {
+      last_exit_code = execute_simple_pipeline(&tokens[start], i - start, default_in, default_out);
+    }
+
+    // Evaluate the logical operator to decide what to do with the NEXT chunk
+    if (i < total_tokens) {
+      char *op = tokens[i];
+      if (strcmp(op, "&&") == 0) {
+        // AND: Skip next if the current command failed (non-zero)
+        skip_next = (last_exit_code != 0); 
+      } else if (strcmp(op, "||") == 0) {
+        // OR: Skip next if the current command succeeded (zero)
+        skip_next = (last_exit_code == 0); 
+      }
+      i++; // Skip the operator token itself
+    }
+  }
+
+  // Clean up memory allocated by the tokenizer
+  for (int k = 0; k < total_tokens; k++) free(tokens[k]);
+  free(tokens);
+
+  return last_exit_code;
+}
+
+
 
 // Exported function callable from Python
 char* get_input(const char* prompt) {
@@ -884,7 +978,7 @@ char* capture_command_output(char *cmd) {
   char *final_cmd = expand_subshells(expanded_vars);
 
   // Pass the temporary file descriptor directly into the pipeline
-  execute_pipeline(final_cmd, STDIN_FILENO, tmp_fd);
+  execute_logic_line(final_cmd, STDIN_FILENO, tmp_fd);
 
   // Clean up allocated strings
   free(expanded_vars);
@@ -1028,7 +1122,7 @@ static PyObject* shell_start(PyObject *self, PyObject *args) {
     }
 
     // Execute Pipeline
-    execute_pipeline(final_cmd, STDIN_FILENO, STDOUT_FILENO);
+    execute_logic_line(final_cmd, STDIN_FILENO, STDOUT_FILENO);
 
     free(final_cmd);
   }
