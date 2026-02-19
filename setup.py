@@ -18,7 +18,7 @@ shell_extension = Extension(
 
 setup(
     name="shellhost",
-    version="2.0.2",
+    version="2.0.3",
     description="Turn Python functions into interactive shell commands in an isolated environment.",
     long_description="Provides an isolated interactive shell environment that you can import Python functions into as shell commands.",
     author="M. Bragg",

@@ -77,64 +77,32 @@ static PyCommand *py_cmd_head = NULL;
 // Cross-platform Spawner
 pid_t spawn_command(char **argv, int input_fd, int output_fd) {
 #ifdef _WIN32
-  // --- WINDOWS IMPLEMENTATION ---
+    int orig_stdin = dup(STDIN_FILENO);
+    int orig_stdout = dup(STDOUT_FILENO);
 
-  // 1. Save current Standard IO so we can restore it later
-  int orig_stdin = dup(STDIN_FILENO);
-  int orig_stdout = dup(STDOUT_FILENO);
+    if (input_fd != STDIN_FILENO) dup2(input_fd, STDIN_FILENO);
+    if (output_fd != STDOUT_FILENO) dup2(output_fd, STDOUT_FILENO);
 
-  // 2. Redirect Standard IO to the pipes provided
-  if (input_fd != STDIN_FILENO) {
-    dup2(input_fd, STDIN_FILENO);
-    close(input_fd); // Close our copy of the pipe end
-  }
-  if (output_fd != STDOUT_FILENO) {
-    dup2(output_fd, STDOUT_FILENO);
-    close(output_fd);
-  }
+    pid_t pid = _spawnvp(_P_NOWAIT, argv[0], argv);
 
-  // 3. Spawn the child
-  // _P_NOWAIT returns a Process Handle (acting as PID) immediately
-  pid_t pid = _spawnvp(_P_NOWAIT, argv[0], argv);
+    dup2(orig_stdin, STDIN_FILENO);
+    dup2(orig_stdout, STDOUT_FILENO);
+    close(orig_stdin);
+    close(orig_stdout);
 
-  if (pid == -1) {
-    fprintf(stderr, "Error spawning %s: %s\n", argv[0], strerror(errno));
-  }
-
-  // 4. Restore Standard IO for the parent shell
-  dup2(orig_stdin, STDIN_FILENO);
-  dup2(orig_stdout, STDOUT_FILENO);
-  close(orig_stdin);
-  close(orig_stdout);
-
-  return pid;
-
+    return pid;
 #else
-  // --- POSIX (Linux/Mac) IMPLEMENTATION ---
-
-  pid_t pid = fork();
-  if (pid == 0) {
-    // Child Process
-    if (input_fd != STDIN_FILENO) {
-      dup2(input_fd, STDIN_FILENO);
-      close(input_fd);
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (input_fd != STDIN_FILENO) dup2(input_fd, STDIN_FILENO);
+        if (output_fd != STDOUT_FILENO) dup2(output_fd, STDOUT_FILENO);
+        execvp(argv[0], argv);
+        perror("execvp failed");
+        exit(1);
     }
-    if (output_fd != STDOUT_FILENO) {
-      dup2(output_fd, STDOUT_FILENO);
-      close(output_fd);
-    }
-
-    // Execute
-    execvp(argv[0], argv);
-    perror("execvp failed");
-    exit(1);
-  }
-
-  // Parent returns the child's PID
-  return pid;
+    return pid;
 #endif
 }
-
 
 
 
@@ -487,7 +455,7 @@ int tokenize_command(char *input_str, char ***argv_ptr) {
 
 
 // The main execution logic handling Pipes and Forking
-void execute_pipeline(char *input) {
+void execute_pipeline(char *input, int default_in, int default_out) {
   char *commands[16];
   int cmd_count = 0;
 
@@ -515,7 +483,7 @@ void execute_pipeline(char *input) {
 
       // Prepare Pipe for Next Command
       int input_fd = prev_fd;
-      int output_fd = STDOUT_FILENO;
+      int output_fd = default_out;
 
       if (i < cmd_count - 1) {
         if (pipe(pipe_fds) == -1) { // Create pipe and make sure it worked.
@@ -536,8 +504,8 @@ void execute_pipeline(char *input) {
         execute_python_command(argv[0], argv, input_fd, output_fd);
 
         // Python is done, close the ends we used
-        if (input_fd != STDIN_FILENO) close(input_fd);
-        if (output_fd != STDOUT_FILENO) close(output_fd);
+        if (input_fd != default_in) close(input_fd);
+        if (output_fd != default_out) close(output_fd);
 
         // Mark PID as 0 (skipped) since we ran it inline
         pids[pid_count++] = 0;
@@ -903,67 +871,31 @@ char* expand_variables(const char* input) {
 
 // CAPTURE OUTPUT (Runs a command and returns its stdout)
 char* capture_command_output(char *cmd) {
-  // 1. Create a Temporary File
-  // tmpfile() creates a file that is automatically deleted when closed.
   FILE *tmp = tmpfile();
-  if (!tmp) {
-    perror("tmpfile");
-    return strdup("");
-  }
+  if (!tmp) return strdup("");
 
-  // Get the File Descriptor for the temp file
   int tmp_fd = fileno(tmp);
 
-  // 2. Save the original STDOUT so we can restore it later
-  int orig_stdout = dup(STDOUT_FILENO);
+  // Pass the temporary file descriptor directly into the pipeline
+  execute_pipeline(cmd, STDIN_FILENO, tmp_fd);
 
-  // 3. Flush buffers to ensure no previous output gets mixed in
-  fflush(stdout);
-
-  // 4. Redirect STDOUT to the Temp File
-  // Now, any command (Python or External) that writes to stdout 
-  // will actually write to our file.
-  if (dup2(tmp_fd, STDOUT_FILENO) == -1) {
-    perror("dup2");
-    fclose(tmp);
-    close(orig_stdout);
-    return strdup("");
-  }
-
-  // 5. Run the Pipeline
-  // This executes the command string. Because STDOUT is redirected,
-  // all output goes into tmp_fd.
-  execute_pipeline(cmd);
-
-  // 6. Flush and Restore STDOUT
   fflush(stdout); 
-  dup2(orig_stdout, STDOUT_FILENO);
-  close(orig_stdout);
-
-  // 7. Read the Captured Data
-  // Rewind the file to the beginning
   rewind(tmp);
 
-  // Allocate a buffer (4KB is a standard page size, adjust if needed)
   char buffer[4096];
   memset(buffer, 0, sizeof(buffer));
-
-  // Read the file content
   size_t n = fread(buffer, 1, sizeof(buffer) - 1, tmp);
-
-  // Cleanup the temp file (this also deletes it from disk)
   fclose(tmp);
 
-  // 8. Trim Trailing Newline
-  // Shell substitution $(...) usually strips the trailing newline.
   if (n > 0 && buffer[n-1] == '\n') {
     buffer[n-1] = '\0';
   } else {
-    buffer[n] = '\0'; // Ensure null-termination
+    buffer[n] = '\0';
   }
 
   return strdup(buffer);
 }
+
 
 // SUBSHELL EXPANSION ($(cmd) -> Output)
 char* expand_subshells(const char* input) {
@@ -1085,7 +1017,7 @@ static PyObject* shell_start(PyObject *self, PyObject *args) {
     }
 
     // Execute Pipeline
-    execute_pipeline(final_cmd);
+    execute_pipeline(final_cmd, STDIN_FILENO, STDOUT_FILENO);
 
     free(final_cmd);
   }
